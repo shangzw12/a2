@@ -6,7 +6,7 @@ from cs231n.layers import *
 from cs231n.layer_utils import *
 
 
-class TwoLayerNet(object):
+class TwoLayerNet_no(object):
     """
     A two-layer fully-connected neural network with ReLU nonlinearity and
     softmax loss that uses a modular layer design. We assume an input dimension
@@ -138,7 +138,7 @@ class TwoLayerNet(object):
         return loss, grads
 
 
-class FullyConnectedNet(object):
+class FullyConnectedNet_no_bn(object):
     """
     A fully-connected neural network with an arbitrary number of hidden layers,
     ReLU nonlinearities, and a softmax loss function. This will also implement
@@ -202,17 +202,10 @@ class FullyConnectedNet(object):
         
         h_dims = [input_dim] + hidden_dims + [num_classes]
         num_weight = len(hidden_dims) +1
-        b = {'b' + str(i +1):  np.zeros (h_dims[i+ 1] )  for i in range (num_weight) }
+        b = {'b' + str(i+1): np.zeros (h_dims[i+1])  for i in range (num_weight) }
         W = {'W' + str(i+1): weight_scale * np.random.randn (h_dims[i], h_dims[i+1]) for i in range (num_weight)}
         self.params.update(b)
         self.params.update (W)
-        #init with batch normalization
-        if self.use_batchnorm : 
-            gamma = {'gamma' + str(i+1) : np.ones(h_dims[i+1]) for i in range (num_weight -1 )} #the last weight layer, no batchnorm layer
-            beta =  {'beta' + str(i+1) : np.zeros (h_dims[i+1]) for i in range (num_weight - 1)}
-            self.params.update(gamma)
-            self.params.update (beta)
-        pass
         ############################################################################
         #                             END OF YOUR CODE                             #
         ############################################################################
@@ -255,9 +248,10 @@ class FullyConnectedNet(object):
             self.dropout_param['mode'] = mode
         if self.use_batchnorm:
             for bn_param in self.bn_params:
-                bn_param['mode'] = mode #change all bn_params according to the loss param y
+                bn_param['mode'] = mode
 
         scores = None
+        num_weight = self.num_layers
         ############################################################################
         # TODO: Implement the forward pass for the fully-connected net, computing  #
         # the class scores for X and storing them in the scores variable.          #
@@ -270,41 +264,14 @@ class FullyConnectedNet(object):
         # self.bn_params[1] to the forward pass for the second batch normalization #
         # layer, etc.                                                              #
         ############################################################################
-        layers =[]
-        relu_layers = []
-        bn_layers = []
-        cache_relu_layers = []
-        cache_layers = []
-        cache_bn_layers = []
-        num_weight = self.num_layers
-        for i in range(num_weight):
-            #first layer, input: X
-            if i == 0:
-                t_a , t_b = affine_forward (X, self.params['W1'], self.params['b1'])
-                layers.append(t_a)
-                cache_layers.append(t_b) 
-            #not first layer, input is the last reLU result
-            else:
-                t_c, t_d = affine_forward (relu_layers[i-1], self.params['W'+str(i+1)], self.params['b' + str(i+1)])
-                layers.append(t_c)
-                cache_layers.append(t_d)
-            #bn_layer before reLU layers
-            if i is not num_weight -1:
-                bn_a , bn_b = batchnorm_forward(layers[i], self.params['gamma' + str(i+1)], \
-                                                        self.params['beta' + str(i+1)], self.bn_params[i])
-                bn_layers.append(bn_a)
-                cache_bn_layers.append(bn_b)
-                t_e, t_f = relu_forward(bn_layers[i])
-                relu_layers.append(t_e) 
-                cache_relu_layers.append(t_f)
-            else:
-                t_e, t_f = relu_forward(layers[i])
-                relu_layers.append(t_e) 
-                cache_relu_layers.append(t_f)
-        #Finally, relu_layers, layers share shape[0], 1 bigger than bn_layer's
-        #scores are last layer's output, it should not go through reLU or bn_layer
-        scores = layers[-1]  
-        num_example = X.shape[0]
+        layers, cache_layers = {} , {} #cache_layer K contains W and b used to compute layer K
+        layers [0] = X
+        for i in range (1, num_weight): #exclude the last layer
+            layers[i], cache_layers[i] = affine_relu_forward (layers[i-1], self.params['W%d' % i] , self.params['b%d' % (i)])
+        Wlast = 'W%d' % (num_weight)
+        blast = 'b%d' % (num_weight)
+        scores, cache_layers[ num_weight ] = affine_forward (layers[num_weight - 1],  \
+            self.params[Wlast], self.params[blast])
         pass
         ############################################################################
         #                             END OF YOUR CODE                             #
@@ -328,6 +295,7 @@ class FullyConnectedNet(object):
         # automated tests, make sure that your L2 regularization includes a factor #
         # of 0.5 to simplify the expression for the gradient.                      #
         ############################################################################
+        num_example = X.shape[0]
         probs = np.exp(scores) / np.sum (np.exp(scores), axis = 1, keepdims = True)
         correct_probs = probs[range(num_example), y]
         data_loss  = np.sum (-np.log (correct_probs) ) / num_example
@@ -337,39 +305,17 @@ class FullyConnectedNet(object):
         dscores = probs
         dscores [range(num_example), y] -= 1
         dscores /= num_example
-
-        dreLU = []
-        dreLU_back = []
-        dW = []
-        db = []
-        dgamma = []
-        dbeta = []
-        dx = []
-        #all input should be from reLU, the first one USED should be equal to dscores
-        for i in range(num_weight):
-            if i == 0:
-                dreLU = [dscores] + dreLU
-                dreLU_back = [ dscores ] + dreLU_back
-                #there is no bn_layer or reLU layer at the very end
-                dx_ , dw_, db_ = affine_backward (dreLU_back[0], cache_layers[num_weight - i -1])
-            else:
-                dreLU_back = [relu_backward(dreLU[0] , cache_layers[num_weight -i -1])] + dreLU_back
-                dxx_, dgamma_, dbeta_ = batchnorm_backward(dreLU_back[0], cache_bn_layers[num_weight -i - 1])
-                dx = [dxx_] + dx
-                dgamma = [dgamma_] + dgamma
-                dbeta = [dbeta_ ] + dbeta
-                dx_ , dw_, db_ = affine_backward (dx[0], cache_layers[num_weight - i -1])
-            dW = [  dw_ + self.reg * cache_layers[num_weight - i -1][1] ] + dW
-            db = [  db_ ]+ db
-            dreLU =[  dx_  ] + dreLU
-        _dW = { 'W'+str(i+1): dW[i]  for i in range (num_weight) }
-        _db = {'b' + str(i+1): db[i] for i in range (num_weight)}
-        _dgamma = {'gamma' + str(i+1): dgamma[i] for i in range (num_weight -1)}
-        _dbeta =  {'beta' + str(i+1): dbeta[i] for i in range (num_weight - 1)}
+        dX, dW, db = {}, {}, {}
+        dX[num_weight], dW[num_weight], db[num_weight] = affine_backward(dscores, cache_layers[num_weight])
+        dW [num_weight ] += self.reg * self.params['W%d' % num_weight ] 
+        for i in reversed(range(1, num_weight)):
+            dX[i], dW[i], db[i] = affine_relu_backward (dX[i+1], cache_layers[i])
+            dW [i] += self.reg * self.params['W' + str(i)]
+        
+        _dW = { 'W'+str(i): dW[i]  for i in range (1, num_weight +1) }
+        _db = {'b' + str(i): db[i] for i in range (1, num_weight + 1 )}
         grads.update(_dW)
         grads.update(_db)
-        grads.update (_dgamma)
-        grads.update (_dbeta)
         pass
         ############################################################################
         #                             END OF YOUR CODE                             #
